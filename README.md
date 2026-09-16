@@ -37,24 +37,17 @@ The architecture demonstrates:
 
 ``` mermaid
 flowchart LR
-
 User[User Browser]
-
 Client[Client Application]
-
 Gateway[API Gateway]
-
 Inventory[Inventories API]
-
 Identity[IdentityServer]
 
 User --> Client
 Client --> Gateway
 Gateway --> Inventory
-
 Client --> Identity
 Inventory --> Identity
-
 Identity --> Client
 Identity --> Gateway
 ```
@@ -74,7 +67,6 @@ Identity --> Gateway
 
 ``` mermaid
 sequenceDiagram
-
 participant User
 participant ClientApp
 participant IdentityServer
@@ -87,7 +79,6 @@ User->>IdentityServer: Authenticate
 IdentityServer->>ClientApp: Authorization Code
 ClientApp->>IdentityServer: Exchange Code for Token
 IdentityServer->>ClientApp: Access Token + ID Token
-
 ClientApp->>ApiGateway: Request with Access Token
 ApiGateway->>IdentityServer: Validate Token
 ApiGateway->>InventoryAPI: Forward request
@@ -101,7 +92,6 @@ ApiGateway->>ClientApp: Response
 
 ``` mermaid
 sequenceDiagram
-
 participant Browser
 participant Client
 participant IdentityServer
@@ -110,20 +100,14 @@ participant API
 
 Browser->>Client: Open application
 Client->>IdentityServer: Redirect to login
-
 Browser->>IdentityServer: Credentials
 IdentityServer->>Browser: Authentication success
-
 IdentityServer->>Client: Authorization Code
-
 Client->>IdentityServer: Token Request
 IdentityServer->>Client: Access Token
-
 Client->>Gateway: API Request + Token
-
 Gateway->>IdentityServer: Validate token
 Gateway->>API: Forward request
-
 API->>Gateway: Data
 Gateway->>Client: Response
 Client->>Browser: Display result
@@ -135,29 +119,19 @@ Client->>Browser: Display result
 
 ``` mermaid
 flowchart LR
-
 Login[User Login]
-
 AuthCode[Authorization Code]
-
 AccessToken[Access Token]
-
 RefreshToken[Refresh Token]
-
 API[Protected API]
-
 Expire[Token Expiration]
-
 Renew[Token Refresh]
 
 Login --> AuthCode
 AuthCode --> AccessToken
 AuthCode --> RefreshToken
-
 AccessToken --> API
-
 AccessToken --> Expire
-
 Expire --> Renew
 Renew --> AccessToken
 ```
@@ -176,30 +150,19 @@ Renew --> AccessToken
 
 ``` mermaid
 flowchart TD
-
 User
-
 Client
-
 Gateway
-
 Auth[IdentityServer]
-
 Service1[Inventories API]
-
 Service2[Future Microservice]
 
 User --> Client
-
 Client --> Auth
-
 Client --> Gateway
-
 Gateway --> Auth
-
 Gateway --> Service1
 Gateway --> Service2
-
 Service1 --> Auth
 Service2 --> Auth
 ```
@@ -217,38 +180,28 @@ Service2 --> Auth
 
 ``` mermaid
 flowchart LR
-
 User
-
 ClientApp
-
 Gateway
-
 IdentityServer
-
 Service
 
 User --> ClientApp
-
 ClientApp --> IdentityServer
-
 IdentityServer --> ClientApp
-
 ClientApp --> Gateway
-
 Gateway --> IdentityServer
-
 Gateway --> Service
 ```
 
 **Responsibilities**
 
-  Component        Responsibility
-  ---------------- --------------------------------
-  IdentityServer   Authentication, token issuance
-  API Gateway      Token validation, routing
-  Services         Business logic
-  Client           User interaction
+| Component      | Responsibility                  |
+| --------------- | -------------------------------- |
+| IdentityServer | Authentication, token issuance  |
+| API Gateway    | Token validation, routing       |
+| Services       | Business logic                  |
+| Client         | User interaction                |
 
 ------------------------------------------------------------------------
 
