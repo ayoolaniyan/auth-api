@@ -48,7 +48,18 @@ namespace Inventories.Client.Controllers
         // GET: Inventories/Details/5
         public async Task<IActionResult> Details(int? id)
         {
-            return View();
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var inventory = await _inventoryApiService.GetInventory(id.ToString());
+            if (inventory == null)
+            {
+                return NotFound();
+            }
+
+            return View(inventory);
         }
 
         // GET: Inventories/Create
@@ -62,13 +73,30 @@ namespace Inventories.Client.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create([Bind("Id,Title,Genre,Rating,ReleaseDate,ImageUrl,Owner")] Inventory inventory)
         {
-            return View();
+            if (!ModelState.IsValid)
+            {
+                return View(inventory);
+            }
+
+            await _inventoryApiService.CreateInventory(inventory);
+            return RedirectToAction(nameof(Index));
         }
 
         // GET: Inventories/Edit/5
         public async Task<IActionResult> Edit(int? id)
         {
-            return View();
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var inventory = await _inventoryApiService.GetInventory(id.ToString());
+            if (inventory == null)
+            {
+                return NotFound();
+            }
+
+            return View(inventory);
         }
 
         // POST: Inventories/Edit/5
@@ -76,13 +104,35 @@ namespace Inventories.Client.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(int id, [Bind("Id,Title,Genre,Rating,ReleaseDate,ImageUrl,Owner")] Inventory inventory)
         {
-            return View();
+            if (id != inventory.Id)
+            {
+                return NotFound();
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return View(inventory);
+            }
+
+            await _inventoryApiService.UpdateInventory(inventory);
+            return RedirectToAction(nameof(Index));
         }
 
         // GET: Inventories/Delete/5
         public async Task<IActionResult> Delete(int? id)
         {
-            return View();
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var inventory = await _inventoryApiService.GetInventory(id.ToString());
+            if (inventory == null)
+            {
+                return NotFound();
+            }
+
+            return View(inventory);
         }
 
         // POST: Inventories/Delete/5
@@ -90,18 +140,14 @@ namespace Inventories.Client.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
-            return View();
+            await _inventoryApiService.DeleteInventory(id);
+            return RedirectToAction(nameof(Index));
         }
 
         public async Task Logout()
         {
             await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-            await HttpContext.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme);            
-        }
-
-        private bool InventoryExists(int id)
-        {
-            return true;
+            await HttpContext.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme);
         }
     }
 }
