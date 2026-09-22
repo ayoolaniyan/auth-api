@@ -35,24 +35,74 @@ namespace Inventories.Client.ApiServices
 
         }
 
-        public Task<Inventory> CreateInventory(Inventory inventory)
+        public async Task<Inventory> CreateInventory(Inventory inventory)
         {
-            throw new NotImplementedException();
+            var httpClient = _httpClientFactory.CreateClient("InventoryAPIClient");
+
+            var request = new HttpRequestMessage(HttpMethod.Post, "/Inventories")
+            {
+                Content = new StringContent(
+                    JsonConvert.SerializeObject(inventory),
+                    System.Text.Encoding.UTF8,
+                    "application/json")
+            };
+
+            var response = await httpClient.SendAsync(request).ConfigureAwait(false);
+
+            response.EnsureSuccessStatusCode();
+
+            var content = await response.Content.ReadAsStringAsync();
+            return JsonConvert.DeserializeObject<Inventory>(content);
         }
 
-        public Task DeleteInventory(int id)
+        public async Task DeleteInventory(int id)
         {
-            throw new NotImplementedException();
+            var httpClient = _httpClientFactory.CreateClient("InventoryAPIClient");
+
+            var request = new HttpRequestMessage(HttpMethod.Delete, $"/Inventories/{id}");
+
+            var response = await httpClient.SendAsync(request).ConfigureAwait(false);
+
+            response.EnsureSuccessStatusCode();
         }
 
-        public Task<Inventory> GetInventory(string id)
+        public async Task<Inventory> GetInventory(string id)
         {
-            throw new NotImplementedException();
+            var httpClient = _httpClientFactory.CreateClient("InventoryAPIClient");
+
+            var request = new HttpRequestMessage(HttpMethod.Get, $"/Inventories/{id}");
+
+            var response = await httpClient.SendAsync(
+                request, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            response.EnsureSuccessStatusCode();
+
+            var content = await response.Content.ReadAsStringAsync();
+            return JsonConvert.DeserializeObject<Inventory>(content);
         }
 
-        public Task<Inventory> UpdateInventory(Inventory inventory)
+        public async Task<Inventory> UpdateInventory(Inventory inventory)
         {
-            throw new NotImplementedException();
+            var httpClient = _httpClientFactory.CreateClient("InventoryAPIClient");
+
+            var request = new HttpRequestMessage(HttpMethod.Put, $"/Inventories/{inventory.Id}")
+            {
+                Content = new StringContent(
+                    JsonConvert.SerializeObject(inventory),
+                    System.Text.Encoding.UTF8,
+                    "application/json")
+            };
+
+            var response = await httpClient.SendAsync(request).ConfigureAwait(false);
+
+            response.EnsureSuccessStatusCode();
+
+            return inventory;
         }
 
         public async Task<UserInfoViewModel> GetUserInfo()
