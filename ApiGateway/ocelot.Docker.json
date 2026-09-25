@@ -1,0 +1,22 @@
+{
+  "Routes": [
+    {
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "inventories-api",
+          "Port": 8080
+        }
+      ]
+    },
+    {
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "inventories-api",
+          "Port": 8080
+        }
+      ]
+    }
+  ]
+}

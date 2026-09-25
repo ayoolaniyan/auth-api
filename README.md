@@ -226,6 +226,7 @@ Gateway --> Service
     ├── Inventories.Client
     │
     ├── .env-example
+    ├── .dockerignore
     ├── docker-compose.yml
     └── AuthServices.sln
 
@@ -245,9 +246,35 @@ Create your local `.env` file from the template and set the SQL Server password
 `.env` is git-ignored. It is read by `docker compose` and loaded by
 IdentityServer at startup, which adds the password to the connection string.
 
-Start the IdentityServer database (SQL Server in Docker)
+There are two ways to run the project: everything in Docker, or the
+services locally with `dotnet run` (only the database in Docker).
 
-    docker compose up -d
+## Option A -- Run everything in Docker
+
+    docker compose up -d --build
+
+| Service            | URL                     |
+| ------------------ | ----------------------- |
+| Inventories.Client | http://localhost:5181   |
+| IdentityServer     | http://localhost:5203   |
+| ApiGateway         | http://localhost:7232   |
+| Inventories.API    | http://localhost:5017   |
+
+Each service has a multi-stage `Dockerfile` and an `appsettings.Docker.json`
+used when `ASPNETCORE_ENVIRONMENT=Docker`. Inside Docker, services use plain
+HTTP and reach each other by service name (e.g. `http://identityserver:8080`),
+while the browser uses `http://localhost:<port>`. IdentityServer's
+`IssuerUri` is fixed to `http://localhost:5203` so tokens validate on both
+paths, and the client rewrites login/logout redirects to the public URL.
+
+Stop the stack with `docker compose down` (add `-v` to also delete the
+database volume).
+
+## Option B -- Run the services locally
+
+Start only the IdentityServer database (SQL Server in Docker)
+
+    docker compose up -d identity-db
 
 IdentityServer stores its configuration data (clients, scopes, identity
 resources) and operational data (grants, consents, device codes) in SQL
@@ -284,7 +311,7 @@ Run each service
 
 # Possible Improvements
 
--   Docker containerization
+-   [x] Docker containerization
 -   Kubernetes deployment
 -   Service discovery
 -   Distributed caching

@@ -10,11 +10,13 @@ namespace Inventories.Client.ApiServices
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly DiscoveryPolicy _discoveryPolicy;
 
-        public InventoryApiService(IHttpClientFactory httpClientFactory, IHttpContextAccessor httpContextAccessor)
+        public InventoryApiService(IHttpClientFactory httpClientFactory, IHttpContextAccessor httpContextAccessor, DiscoveryPolicy discoveryPolicy)
         {
             _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
             _httpContextAccessor = httpContextAccessor ?? throw new ArgumentNullException(nameof(httpContextAccessor));
+            _discoveryPolicy = discoveryPolicy ?? throw new ArgumentNullException(nameof(discoveryPolicy));
         }
 
         public async Task<IEnumerable<Inventory>> GetInventories()
@@ -109,7 +111,8 @@ namespace Inventories.Client.ApiServices
         {
             var idpClient = _httpClientFactory.CreateClient("IDPClient");
 
-            var metaDataResponse = await idpClient.GetDiscoveryDocumentAsync();
+            var metaDataResponse = await idpClient.GetDiscoveryDocumentAsync(
+                new DiscoveryDocumentRequest { Policy = _discoveryPolicy });
 
             if (metaDataResponse.IsError) 
             {

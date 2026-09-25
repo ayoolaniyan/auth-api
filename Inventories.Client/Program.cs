@@ -14,15 +14,54 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllersWithViews();
 builder.Services.AddScoped<IInventoryApiService, InventoryApiService>();
 
+// Public URL is what the browser uses; internal URL is used for server-to-server calls
+// (they differ when running in Docker, see appsettings.Docker.json).
+var identityServerUrl = builder.Configuration["IdentityServer:Authority"]!;
+var identityServerInternalUrl = builder.Configuration["IdentityServer:InternalAuthority"] ?? identityServerUrl;
+var apiGatewayUrl = builder.Configuration["ApiGateway:BaseUrl"]!;
+var requireHttpsMetadata = builder.Configuration.GetValue("IdentityServer:RequireHttpsMetadata", true);
+
+// Discovery validation for back-channel calls (e.g. userinfo): the issuer is the public URL,
+// but endpoints are served from the internal URL when running in Docker.
+builder.Services.AddSingleton(new DiscoveryPolicy
+{
+    Authority = identityServerUrl,
+    RequireHttps = requireHttpsMetadata,
+    AdditionalEndpointBaseAddresses = { identityServerInternalUrl }
+});
+
 builder.Services.AddAuthentication(options =>
     {
         options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
         options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
     })
-    .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
+    {
+        options.AccessDeniedPath = "/Account/AccessDenied";
+    })
     .AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, options =>
     {                    
-        options.Authority = "https://localhost:5203";
+        options.Authority = identityServerUrl;
+        options.MetadataAddress = $"{identityServerInternalUrl.TrimEnd('/')}/.well-known/openid-configuration";
+        options.RequireHttpsMetadata = requireHttpsMetadata;
+
+        // Discovery is fetched from the internal URL, so browser redirects must be
+        // rewritten back to the public URL.
+        if (identityServerInternalUrl != identityServerUrl)
+        {
+            options.Events.OnRedirectToIdentityProvider = context =>
+            {
+                context.ProtocolMessage.IssuerAddress = context.ProtocolMessage.IssuerAddress
+                    .Replace(identityServerInternalUrl, identityServerUrl);
+                return Task.CompletedTask;
+            };
+            options.Events.OnRedirectToIdentityProviderForSignOut = context =>
+            {
+                context.ProtocolMessage.IssuerAddress = context.ProtocolMessage.IssuerAddress
+                    .Replace(identityServerInternalUrl, identityServerUrl);
+                return Task.CompletedTask;
+            };
+        }
 
         options.ClientId = "inventories_mvc_client";
         options.ClientSecret = "secret";
@@ -52,7 +91,7 @@ builder.Services.AddTransient<AuthenticationDelegatingHandler>();
            
 builder.Services.AddHttpClient("InventoryAPIClient", client =>
 {
-    client.BaseAddress = new Uri("https://localhost:7232/"); // API GATEWAY URL
+    client.BaseAddress = new Uri(apiGatewayUrl); // API GATEWAY URL
     client.DefaultRequestHeaders.Clear();
     client.DefaultRequestHeaders.Add(HeaderNames.Accept, "application/json");
 }).AddHttpMessageHandler<AuthenticationDelegatingHandler>();
@@ -60,7 +99,7 @@ builder.Services.AddHttpClient("InventoryAPIClient", client =>
 // 2 create an HttpClient used for accessing the IDP
 builder.Services.AddHttpClient("IDPClient", client =>
 {
-    client.BaseAddress = new Uri("https://localhost:5203/");
+    client.BaseAddress = new Uri(identityServerInternalUrl);
     client.DefaultRequestHeaders.Clear();
     client.DefaultRequestHeaders.Add(HeaderNames.Accept, "application/json");
 });

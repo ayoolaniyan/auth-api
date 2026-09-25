@@ -26,6 +26,14 @@ builder.Services
     .AddIdentityServer(options =>
     {
         options.KeyManagement.Enabled = false;
+
+        // Fixed issuer so tokens validate the same whether IdentityServer is reached
+        // via its public URL (browser) or its internal Docker hostname (other services).
+        var issuerUri = builder.Configuration["IdentityServer:IssuerUri"];
+        if (!string.IsNullOrWhiteSpace(issuerUri))
+        {
+            options.IssuerUri = issuerUri;
+        }
     })
     .AddConfigurationStore(options =>
     {
