@@ -15,7 +15,8 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddAuthentication("Bearer")
     .AddJwtBearer("Bearer", options =>
     {
-        options.Authority = "https://localhost:5203";
+        options.Authority = builder.Configuration["IdentityServer:Authority"];
+        options.RequireHttpsMetadata = builder.Configuration.GetValue("IdentityServer:RequireHttpsMetadata", true);
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateAudience = false

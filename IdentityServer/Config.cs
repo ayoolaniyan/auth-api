@@ -34,11 +34,13 @@ namespace IdentityServer
                        AllowRememberConsent = false,
                        RedirectUris = new List<string>()
                        {
-                           "https://localhost:5181/signin-oidc"
+                           "https://localhost:5181/signin-oidc",
+                           "http://localhost:5181/signin-oidc" // Docker
                        },
                        PostLogoutRedirectUris = new List<string>()
                        {
-                           "https://localhost:5181/signout-callback-oidc"
+                           "https://localhost:5181/signout-callback-oidc",
+                           "http://localhost:5181/signout-callback-oidc" // Docker
                        },
                        ClientSecrets = new List<Secret>
                        {

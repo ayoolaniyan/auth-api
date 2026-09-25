@@ -5,12 +5,13 @@ using Ocelot.Middleware;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration.AddJsonFile("ocelot.json", optional: false, reloadOnChange: true);
+builder.Configuration.AddJsonFile($"ocelot.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
 
 builder.Services.AddAuthentication()
     .AddJwtBearer("IdentityApiKey", x =>
     {
-        x.Authority = "https://localhost:5203"; // IDENTITY SERVER URL
-        //x.RequireHttpsMetadata = false;
+        x.Authority = builder.Configuration["IdentityServer:Authority"]; // IDENTITY SERVER URL
+        x.RequireHttpsMetadata = builder.Configuration.GetValue("IdentityServer:RequireHttpsMetadata", true);
         x.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateAudience = false

@@ -17,5 +17,57 @@ services:
       retries: 10
       start_period: 20s
 
+  identityserver:
+    build:
+      context: .
+      dockerfile: IdentityServer/Dockerfile
+    container_name: identityserver
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:?MSSQL_SA_PASSWORD must be set in .env}"
+    ports:
+      - "5203:8080"
+    depends_on:
+      identity-db:
+        condition: service_healthy
+
+  inventories-api:
+    build:
+      context: .
+      dockerfile: Inventories.API/Dockerfile
+    container_name: inventories-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+    ports:
+      - "5017:8080"
+    depends_on:
+      - identityserver
+
+  apigateway:
+    build:
+      context: .
+      dockerfile: ApiGateway/Dockerfile
+    container_name: apigateway
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+    ports:
+      - "7232:8080"
+    depends_on:
+      - identityserver
+      - inventories-api
+
+  inventories-client:
+    build:
+      context: .
+      dockerfile: Inventories.Client/Dockerfile
+    container_name: inventories-client
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+    ports:
+      - "5181:8080"
+    depends_on:
+      - identityserver
+      - apigateway
+
 volumes:
   identity-db-data:

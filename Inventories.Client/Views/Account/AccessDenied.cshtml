@@ -1,0 +1,28 @@
+@{
+    ViewData["Title"] = "Access Denied";
+    var roles = User.FindAll("role").Select(c => c.Value).ToList();
+    var returnUrl = ViewData["ReturnUrl"] as string;
+}
+
+<h1 class="text-danger">@ViewData["Title"]</h1>
+
+<p>
+    Sorry <strong>@User.Identity?.Name</strong>, you don't have permission to access
+    @if (!string.IsNullOrEmpty(returnUrl))
+    {
+        <code>@returnUrl</code>@:.
+    }
+    else
+    {
+        @:this page.
+    }
+</p>
+
+<p>
+    Your role(s): <strong>@(roles.Any() ? string.Join(", ", roles) : "none")</strong>
+</p>
+
+<p>
+    <a class="btn btn-primary" asp-controller="Inventories" asp-action="Index">Back to Inventories</a>
+    <a class="btn btn-secondary" asp-controller="Inventories" asp-action="Logout">Sign in as a different user</a>
+</p>
