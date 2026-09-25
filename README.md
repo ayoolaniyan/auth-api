@@ -210,8 +210,10 @@ Gateway --> Service
     AuthServices
     │
     ├── IdentityServer
-    │   ├── Configuration
-    │   ├── Controllers
+    │   ├── Data/Migrations
+    │   ├── Pages
+    │   ├── Config.cs
+    │   ├── SeedData.cs
     │   └── Program.cs
     │
     ├── Inventories.API
@@ -223,6 +225,8 @@ Gateway --> Service
     │
     ├── Inventories.Client
     │
+    ├── .env-example
+    ├── docker-compose.yml
     └── AuthServices.sln
 
 ------------------------------------------------------------------------
@@ -233,6 +237,30 @@ Clone the repository
 
     git clone https://github.com/yourusername/AuthServices.git
     cd AuthServices
+
+Create your local `.env` file from the template and set the SQL Server password
+
+    cp .env-example .env
+
+`.env` is git-ignored. It is read by `docker compose` and loaded by
+IdentityServer at startup, which adds the password to the connection string.
+
+Start the IdentityServer database (SQL Server in Docker)
+
+    docker compose up -d
+
+IdentityServer stores its configuration data (clients, scopes, identity
+resources) and operational data (grants, consents, device codes) in SQL
+Server via EF Core. On startup it applies pending migrations and seeds the
+configuration tables from `Config.cs` if they are empty. The development
+connection string (without the password) lives in
+`IdentityServer/appsettings.Development.json`.
+
+To add a new migration after changing the IdentityServer EF model:
+
+    cd IdentityServer
+    dotnet ef migrations add <Name> -c ConfigurationDbContext -o Data/Migrations/IdentityServer/ConfigurationDb
+    dotnet ef migrations add <Name> -c PersistedGrantDbContext -o Data/Migrations/IdentityServer/PersistedGrantDb
 
 Run each service
 
@@ -254,13 +282,7 @@ Run each service
 
 ------------------------------------------------------------------------
 
-# TODOS:
-- Create Access Denied page
-- EF Core Integration Real DB - Reference: (Using EF Core for Configuration and Operational data)
-
-------------------------------------------------------------------------
-
-# Future Improvements
+# Possible Improvements
 
 -   Docker containerization
 -   Kubernetes deployment
