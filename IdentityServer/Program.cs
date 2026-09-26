@@ -1,5 +1,6 @@
 using Duende.IdentityServer.Models;
 using IdentityServer;
+using IdentityServer.Caching;
 using IdentityServerHost.Quickstart.UI;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -22,6 +23,9 @@ var connectionString = new SqlConnectionStringBuilder(
 }.ConnectionString;
 var migrationsAssembly = typeof(Program).Assembly.GetName().Name;
 
+// Redis holds the configuration store cache and the Data Protection keys (see Caching/).
+builder.Services.AddRedisCaching(builder.Configuration);
+
 builder.Services
     .AddIdentityServer(options =>
     {
@@ -40,6 +44,8 @@ builder.Services
         options.ConfigureDbContext = b => b.UseSqlServer(connectionString,
             sql => sql.MigrationsAssembly(migrationsAssembly));
     })
+    // Clients, resources and scopes are read from Redis instead of SQL Server on every request.
+    .AddConfigurationStoreCache()
     .AddOperationalStore(options =>
     {
         options.ConfigureDbContext = b => b.UseSqlServer(connectionString,

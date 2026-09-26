@@ -24,6 +24,7 @@ The system is composed of:
 -   **Inventories API** -- Protected backend service -- .NET 8
 -   **Client Web App** -- Authenticated user interface -- .NET 8
 -   **Consul** -- Service registry used by the gateway to find backend services -- HashiCorp Consul
+-   **Redis** -- Distributed cache shared by all service instances -- Redis
 
 The architecture demonstrates:
 
@@ -32,6 +33,7 @@ The architecture demonstrates:
 -   Token-based API protection
 -   Zero‑Trust microservice communication
 -   Service discovery with health-checked, load-balanced routing
+-   Distributed caching and shared Data Protection keys with Redis
 
 ------------------------------------------------------------------------
 
@@ -273,11 +275,106 @@ The Consul UI is at http://localhost:8500 in every run mode.
 
 ------------------------------------------------------------------------
 
+# Distributed Caching
+
+Redis is a cache shared by every instance of every service, so a value
+cached by one instance can be read by all of them. It holds three things:
+
+``` mermaid
+flowchart LR
+Client[Inventories.Client]
+Identity[IdentityServer]
+API[Inventories API instances]
+Redis[(Redis)]
+SQL[(SQL Server)]
+DB[(Inventories DB)]
+
+API -- 1. inventory reads --> Redis
+API -- on miss --> DB
+Identity -- 2. clients, resources, scopes --> Redis
+Identity -- on miss --> SQL
+Identity -- 3. Data Protection keys --> Redis
+Client -- 3. Data Protection keys --> Redis
+```
+
+| What                            | Service         | Redis key prefix                          | Expires / invalidated                               |
+| ------------------------------- | --------------- | ----------------------------------------- | --------------------------------------------------- |
+| Inventory list and single items | Inventories.API | `inventories-api:inventories:`            | After 60 s, or immediately on `POST`/`PUT`/`DELETE` |
+| Clients, API scopes, resources  | IdentityServer  | `identityserver:<Type>:` (e.g. `Client:`) | After 15 min (Duende's default cache expiration)    |
+| Data Protection key ring        | IdentityServer  | `identityserver:data-protection-keys`     | Never (keys rotate every 90 days)                   |
+| Data Protection key ring        | Client          | `inventories-client:data-protection-keys` | Never (keys rotate every 90 days)                   |
+
+**How it works**
+
+1.  **Inventory reads (cache-aside).** `GET /api/inventories` and
+    `GET /api/inventories/{id}` read from Redis first and fall back to the
+    database on a miss, then store the result
+    (`Inventories.API/Caching/InventoryCache.cs`). Every write removes the
+    cached list and the changed item, so the next read reloads them. The TTL
+    is `Redis:InventoryTtlSeconds`. Not-found results are not cached.
+2.  **IdentityServer configuration store.** `AddConfigurationStoreCache()`
+    stops IdentityServer from querying SQL Server for the client and its
+    scopes on every token request. By default Duende keeps that cache in
+    each process's memory. `IdentityServer/Caching/DistributedCache.cs`
+    replaces it with Redis for clients, API scopes, API resources and
+    identity resources. Cached entries are not removed when the database
+    changes, so configuration edits take effect after the entry expires.
+3.  **Data Protection keys.** ASP.NET Core encrypts the login cookie, the
+    OIDC correlation/nonce cookies and anti-forgery tokens with Data
+    Protection keys. By default these are stored in the container's file
+    system, so a restarted container can no longer read cookies it issued
+    and users are signed out. Both IdentityServer and the client now keep
+    their key ring in Redis, so users stay signed in across restarts and
+    any instance can read a cookie issued by another. Redis runs with
+    append-only persistence on a volume, so the keys also survive Redis
+    restarts.
+
+**If Redis is down**
+
+-   Inventories.API and IdentityServer's configuration cache keep working.
+    Cache errors are logged as warnings and the value is read from the
+    database. The Redis client fails fast while disconnected (no timeout
+    wait) and reconnects in the background.
+-   Redis is intentionally **not** part of the API's `/health` check, so a
+    Redis outage does not make Consul remove every API instance.
+-   Data Protection needs Redis. New keys cannot be loaded or created while
+    it is down, so sign-in may fail until Redis is back.
+
+| Run mode        | Redis address    |
+| --------------- | ---------------- |
+| `dotnet run`    | `localhost:6379` |
+| docker-compose  | `redis:6379`     |
+| Kubernetes      | `redis:6379`     |
+
+These come from the `Redis` section of each service's `appsettings*.json`.
+
+Inspect the cache with `redis-cli`:
+
+    # docker-compose / dotnet run
+    redis-cli --scan
+    # Kubernetes
+    kubectl --context kind-auth-services -n auth-services exec statefulset/redis -- redis-cli --scan
+
+**Security note:** Redis runs without a password or TLS here, which is
+fine for local development only. It holds the Data Protection keys (anyone
+who can read them can decrypt or forge cookies) and hashed client secrets,
+so in production enable Redis `AUTH`/ACLs and TLS, keep it on a private
+network, and consider encrypting the key ring at rest
+(`ProtectKeysWith...`).
+
+**Caveat:** the Inventories API still uses an in-memory database, so each
+replica has its own data. With more than one replica the shared cache can
+return data loaded from a different replica's database. A shared database
+is needed before running more than one API replica.
+
+------------------------------------------------------------------------
+
 # Project Structure
 
     AuthServices
     │
     ├── IdentityServer
+    │   ├── Caching            (Redis config store cache + Data Protection)
     │   ├── Data/Migrations
     │   ├── Pages
     │   ├── Config.cs
@@ -287,6 +384,7 @@ The Consul UI is at http://localhost:8500 in every run mode.
     ├── Inventories.API
     │   ├── Controllers
     │   ├── Services
+    │   ├── Caching            (Redis cache-aside for inventory reads)
     │   ├── ServiceDiscovery   (Consul registration)
     │   └── Models
     │
@@ -338,6 +436,7 @@ a local Kubernetes cluster with Helm.
 | ApiGateway         | http://localhost:7232   |
 | Inventories.API    | http://localhost:5017   |
 | Consul UI          | http://localhost:8500   |
+| Redis              | localhost:6379          |
 
 Each service has a multi-stage `Dockerfile` and an `appsettings.Docker.json`
 used when `ASPNETCORE_ENVIRONMENT=Docker`. Inside Docker, services use plain
@@ -351,9 +450,9 @@ database volume).
 
 ## Option B -- Run the services locally
 
-Start only the IdentityServer database (SQL Server) and Consul in Docker
+Start only the IdentityServer database (SQL Server), Consul and Redis in Docker
 
-    docker compose up -d identity-db consul
+    docker compose up -d identity-db consul redis
 
 IdentityServer stores its configuration data (clients, scopes, identity
 resources) and operational data (grants, consents, device codes) in SQL
@@ -415,6 +514,7 @@ reuse `appsettings.Docker.json` and `ocelot.Docker.json` unchanged.
 | `identity-db-secret` Secret   | `MSSQL_SA_PASSWORD` from `.env`           |
 | NodePort Services + kind port mappings | `ports:`                         |
 | `consul` Deployment + NodePort | `consul` container                       |
+| `redis` StatefulSet+PVC       | `redis` container + named volume          |
 
 Useful commands
 
@@ -432,8 +532,9 @@ discovery inside the cluster works either way.
 
 All services run as a single replica. IdentityServer uses a developer
 signing key stored on disk and the Inventories API uses an in-memory
-database, so running more replicas would need shared key storage and a
-real database first. The gateway is ready for more Inventories API
+database, so running more replicas would need shared signing key storage
+and a real database first. Data Protection keys and the caches are
+already shared through Redis. The gateway is ready for more Inventories API
 replicas: each pod registers its own IP with Consul and Ocelot
 round-robins across the healthy ones. However, each replica would have
 its own separate in-memory data.
@@ -454,6 +555,7 @@ To render or check the chart without a cluster:
 -   Microservice authentication
 -   Zero‑Trust architecture
 -   Service discovery (Consul) with health checks
+-   Shared Data Protection keys for cookies across instances (Redis)
 
 ------------------------------------------------------------------------
 
@@ -462,7 +564,7 @@ To render or check the chart without a cluster:
 -   [x] Docker containerization
 -   [x] Kubernetes deployment
 -   [x] Service discovery
--   Distributed caching
+-   [x] Distributed caching
 -   Refresh token rotation
 -   Rate limiting
 -   Observability with OpenTelemetry

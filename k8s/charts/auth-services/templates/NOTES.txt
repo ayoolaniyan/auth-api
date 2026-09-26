@@ -11,4 +11,7 @@ With the kind cluster from k8s/kind-config.yaml, the services are available at:
   Inventories.API     http://localhost:5017
   Consul UI           http://localhost:8500
 
+Redis ({{ .Values.redis.name }}:{{ .Values.redis.port }}) is only reachable inside the cluster:
+  kubectl exec -n {{ .Release.Namespace }} statefulset/{{ .Values.redis.name }} -- redis-cli
+
 Check status with: kubectl get pods -n {{ .Release.Namespace }}

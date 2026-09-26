@@ -1,0 +1,70 @@
+{{- $redis := .Values.redis }}
+# Distributed cache shared by the services (replaces the docker-compose `redis` container).
+# ClusterIP only: nothing outside the cluster needs it. Append-only persistence on a volume keeps
+# the Data Protection keys, and so users' login cookies, across pod restarts.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $redis.name }}
+  labels:
+    {{- include "auth-services.labels" (dict "root" $ "name" $redis.name) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "auth-services.selectorLabels" (dict "root" $ "name" $redis.name) | nindent 4 }}
+  ports:
+    - name: redis
+      port: {{ $redis.port }}
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $redis.name }}
+  labels:
+    {{- include "auth-services.labels" (dict "root" $ "name" $redis.name) | nindent 4 }}
+spec:
+  serviceName: {{ $redis.name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "auth-services.selectorLabels" (dict "root" $ "name" $redis.name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "auth-services.labels" (dict "root" $ "name" $redis.name) | nindent 8 }}
+    spec:
+      containers:
+        - name: redis
+          image: {{ $redis.image }}
+          args: ["redis-server", "--appendonly", "yes"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          # Same check as the docker-compose healthcheck.
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            {{- toYaml $redis.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with $redis.storage.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $redis.storage.size }}
