@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Net.Http.Headers;
 using Inventories.Client.HttpHandlers;
 using Inventories.Client.Authentication;
+using Inventories.Client.Filters;
 using Duende.IdentityModel.Client;
 using Microsoft.IdentityModel.Tokens;
 using Duende.IdentityModel;
@@ -14,7 +15,11 @@ using StackExchange.Redis;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-builder.Services.AddControllersWithViews();
+builder.Services.AddControllersWithViews(options =>
+{
+    // API calls rejected by the gateway's rate limiter show a friendly page.
+    options.Filters.Add<TooManyRequestsExceptionFilter>();
+});
 builder.Services.AddScoped<IInventoryApiService, InventoryApiService>();
 
 // The login cookie is encrypted with Data Protection keys. Keeping them in Redis means users stay

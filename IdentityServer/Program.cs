@@ -1,6 +1,7 @@
 using Duende.IdentityServer.Models;
 using IdentityServer;
 using IdentityServer.Caching;
+using IdentityServer.RateLimiting;
 using IdentityServerHost.Quickstart.UI;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +26,9 @@ var migrationsAssembly = typeof(Program).Assembly.GetName().Name;
 
 // Redis holds the configuration store cache and the Data Protection keys (see Caching/).
 builder.Services.AddRedisCaching(builder.Configuration);
+
+// Limits login attempts and token requests (see RateLimiting/ and appsettings.json).
+builder.Services.AddIdentityServerRateLimiting(builder.Configuration);
 
 builder.Services
     .AddIdentityServer(options =>
@@ -61,6 +65,7 @@ SeedData.InitializeDatabase(app);
 
 app.UseStaticFiles();
 app.UseRouting();
+app.UseIdentityServerRateLimiting();
 app.UseIdentityServer();
 app.UseAuthorization();
 app.MapRazorPages();
