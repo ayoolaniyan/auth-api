@@ -1,0 +1,56 @@
+{{- $consul := .Values.consul }}
+# Service registry for the in-cluster services (replaces the docker-compose `consul` container).
+# Dev mode keeps the catalog in memory; services re-register themselves if Consul restarts.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $consul.name }}
+  labels:
+    {{- include "auth-services.labels" (dict "root" $ "name" $consul.name) | nindent 4 }}
+spec:
+  type: NodePort
+  selector:
+    {{- include "auth-services.selectorLabels" (dict "root" $ "name" $consul.name) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $consul.port }}
+      targetPort: http
+      nodePort: {{ $consul.nodePort }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $consul.name }}
+  labels:
+    {{- include "auth-services.labels" (dict "root" $ "name" $consul.name) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "auth-services.selectorLabels" (dict "root" $ "name" $consul.name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "auth-services.labels" (dict "root" $ "name" $consul.name) | nindent 8 }}
+    spec:
+      containers:
+        - name: consul
+          image: {{ $consul.image }}
+          args: ["agent", "-dev", "-client=0.0.0.0", "-ui"]
+          ports:
+            - name: http
+              containerPort: 8500
+          readinessProbe:
+            httpGet:
+              path: /v1/status/leader
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /v1/status/leader
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            {{- toYaml $consul.resources | nindent 12 }}

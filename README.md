@@ -23,6 +23,7 @@ The system is composed of:
 -   **API Gateway** -- Single secure entry point for APIs -- Ocelot
 -   **Inventories API** -- Protected backend service -- .NET 8
 -   **Client Web App** -- Authenticated user interface -- .NET 8
+-   **Consul** -- Service registry used by the gateway to find backend services -- HashiCorp Consul
 
 The architecture demonstrates:
 
@@ -30,6 +31,7 @@ The architecture demonstrates:
 -   API Gateway security
 -   Token-based API protection
 -   Zero‑Trust microservice communication
+-   Service discovery with health-checked, load-balanced routing
 
 ------------------------------------------------------------------------
 
@@ -205,6 +207,72 @@ Gateway --> Service
 
 ------------------------------------------------------------------------
 
+# Service Discovery
+
+The API Gateway no longer has hard-coded downstream hosts. Each
+Inventories.API instance registers itself with **Consul**, and Ocelot
+looks the service up by name on every request.
+
+``` mermaid
+flowchart LR
+Client[Client Application]
+Gateway[API Gateway - Ocelot]
+Consul[Consul Registry]
+API1[Inventories API instance 1]
+API2[Inventories API instance N]
+
+API1 -- register + /health --> Consul
+API2 -- register + /health --> Consul
+Consul -- health check --> API1
+Consul -- health check --> API2
+Client --> Gateway
+Gateway -- lookup inventories-api --> Consul
+Gateway -- round robin --> API1
+Gateway -- round robin --> API2
+```
+
+**How it works**
+
+1.  On startup, Inventories.API registers with Consul as `inventories-api`,
+    using a unique instance ID and an HTTP health check on `/health`
+    (`Inventories.API/ServiceDiscovery`). Registration is retried in the
+    background until Consul is reachable, and is restored within 30 seconds
+    if Consul loses it (dev-mode Consul keeps its catalog in memory).
+2.  Consul checks each instance every 10 seconds and removes instances whose
+    check has failed for more than a minute. Instances also deregister
+    themselves on graceful shutdown.
+3.  Ocelot routes use `"ServiceName": "inventories-api"` instead of
+    `DownstreamHostAndPorts`, with `RoundRobin` load balancing.
+    `GlobalConfiguration.ServiceDiscoveryProvider` in `ocelot.json` points at
+    Consul. Only instances with a passing check are used. If there are none,
+    the gateway returns `404`.
+4.  Token validation is unchanged: the gateway still validates the JWT
+    before forwarding, and the API validates it again.
+
+The gateway uses a small custom service builder
+(`ApiGateway/ServiceAddressConsulServiceBuilder.cs`). Ocelot's default
+builder routes to the Consul *node name*, which with a single Consul agent
+is the Consul container itself. The custom builder routes to the address
+each instance registered with.
+
+| Run mode        | Consul address          | API registers as        | Consul health check URL                        |
+| --------------- | ----------------------- | ----------------------- | ---------------------------------------------- |
+| `dotnet run`    | `http://localhost:8500` | `localhost:5017`        | `https://host.docker.internal:5017/health`     |
+| docker-compose  | `http://consul:8500`    | `inventories-api:8080`  | `http://inventories-api:8080/health`           |
+| Kubernetes      | `http://consul:8500`    | `<pod IP>:8080`         | `http://<pod IP>:8080/health`                  |
+
+These values come from the `ServiceDiscovery` section of
+`Inventories.API/appsettings*.json`. In Kubernetes, the pod IP is injected
+through the `ServiceDiscovery__ServiceAddress` environment variable.
+
+IdentityServer and the client application are **not** resolved through
+Consul. Their URLs are part of token validation (issuer) and browser
+redirects, so they stay fixed public URLs.
+
+The Consul UI is at http://localhost:8500 in every run mode.
+
+------------------------------------------------------------------------
+
 # Project Structure
 
     AuthServices
@@ -219,9 +287,12 @@ Gateway --> Service
     ├── Inventories.API
     │   ├── Controllers
     │   ├── Services
+    │   ├── ServiceDiscovery   (Consul registration)
     │   └── Models
     │
     ├── ApiGateway
+    │   ├── ocelot.json        (routes resolved via Consul)
+    │   └── ServiceAddressConsulServiceBuilder.cs
     │
     ├── Inventories.Client
     │
@@ -266,6 +337,7 @@ a local Kubernetes cluster with Helm.
 | IdentityServer     | http://localhost:5203   |
 | ApiGateway         | http://localhost:7232   |
 | Inventories.API    | http://localhost:5017   |
+| Consul UI          | http://localhost:8500   |
 
 Each service has a multi-stage `Dockerfile` and an `appsettings.Docker.json`
 used when `ASPNETCORE_ENVIRONMENT=Docker`. Inside Docker, services use plain
@@ -279,9 +351,9 @@ database volume).
 
 ## Option B -- Run the services locally
 
-Start only the IdentityServer database (SQL Server in Docker)
+Start only the IdentityServer database (SQL Server) and Consul in Docker
 
-    docker compose up -d identity-db
+    docker compose up -d identity-db consul
 
 IdentityServer stores its configuration data (clients, scopes, identity
 resources) and operational data (grants, consents, device codes) in SQL
@@ -302,6 +374,11 @@ Run each service
     dotnet run --project Inventories.API
     dotnet run --project ApiGateway
     dotnet run --project Inventories.Client
+
+Inventories.API registers itself with Consul as `localhost:5017`. Consul
+runs in Docker, so it health-checks the API through
+`https://host.docker.internal:5017/health` and skips TLS verification for
+the self-signed development certificate.
 
 ## Option C -- Run on Kubernetes (kind + Helm)
 
@@ -337,6 +414,7 @@ reuse `appsettings.Docker.json` and `ocelot.Docker.json` unchanged.
 | IdentityServer init container | `depends_on: condition: service_healthy`  |
 | `identity-db-secret` Secret   | `MSSQL_SA_PASSWORD` from `.env`           |
 | NodePort Services + kind port mappings | `ports:`                         |
+| `consul` Deployment + NodePort | `consul` container                       |
 
 Useful commands
 
@@ -346,10 +424,19 @@ Useful commands
 
 Delete the cluster, including the database volume, with `k8s/teardown.sh`.
 
+The Consul UI port (8500) is a kind port mapping, and kind can only set those
+when it creates a cluster. If your cluster was created before service
+discovery was added, `deploy.sh` prints a warning. Run `k8s/teardown.sh`
+and deploy again to get the Consul UI on http://localhost:8500. Service
+discovery inside the cluster works either way.
+
 All services run as a single replica. IdentityServer uses a developer
 signing key stored on disk and the Inventories API uses an in-memory
 database, so running more replicas would need shared key storage and a
-real database first.
+real database first. The gateway is ready for more Inventories API
+replicas: each pod registers its own IP with Consul and Ocelot
+round-robins across the healthy ones. However, each replica would have
+its own separate in-memory data.
 
 To render or check the chart without a cluster:
 
@@ -366,6 +453,7 @@ To render or check the chart without a cluster:
 -   API Gateway security
 -   Microservice authentication
 -   Zero‑Trust architecture
+-   Service discovery (Consul) with health checks
 
 ------------------------------------------------------------------------
 
@@ -373,7 +461,7 @@ To render or check the chart without a cluster:
 
 -   [x] Docker containerization
 -   [x] Kubernetes deployment
--   Service discovery
+-   [x] Service discovery
 -   Distributed caching
 -   Refresh token rotation
 -   Rate limiting
