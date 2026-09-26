@@ -25,6 +25,7 @@ The system is composed of:
 -   **Client Web App** -- Authenticated user interface -- .NET 8
 -   **Consul** -- Service registry used by the gateway to find backend services -- HashiCorp Consul
 -   **Redis** -- Distributed cache shared by all service instances -- Redis
+-   **Grafana LGTM** -- Collects and shows traces, metrics and logs from every service -- OpenTelemetry
 
 The architecture demonstrates:
 
@@ -34,6 +35,7 @@ The architecture demonstrates:
 -   Zero‑Trust microservice communication
 -   Service discovery with health-checked, load-balanced routing
 -   Distributed caching and shared Data Protection keys with Redis
+-   Distributed tracing, metrics and logs with OpenTelemetry
 
 ------------------------------------------------------------------------
 
@@ -491,6 +493,95 @@ Limits are set in the `RateLimiting` section of each service's
 
 ------------------------------------------------------------------------
 
+# Observability
+
+Every service exports **traces, metrics and logs** with the OpenTelemetry
+.NET SDK over OTLP to a single `otel-lgtm` container
+([grafana/otel-lgtm](https://github.com/grafana/docker-otel-lgtm)). It runs an
+OpenTelemetry Collector that stores traces in Tempo, metrics in Prometheus
+and logs in Loki, and serves Grafana to explore them.
+
+``` mermaid
+flowchart LR
+Client[Inventories.Client]
+Gateway[API Gateway]
+API[Inventories API]
+Identity[IdentityServer]
+subgraph LGTM[otel-lgtm]
+Collector[OTel Collector]
+Tempo[(Tempo)]
+Prometheus[(Prometheus)]
+Loki[(Loki)]
+Grafana[Grafana :3000]
+end
+
+Client -- OTLP --> Collector
+Gateway -- OTLP --> Collector
+API -- OTLP --> Collector
+Identity -- OTLP --> Collector
+Collector --> Tempo
+Collector --> Prometheus
+Collector --> Loki
+Tempo --> Grafana
+Prometheus --> Grafana
+Loki --> Grafana
+```
+
+**Distributed tracing.** Outgoing HTTP calls carry a W3C `traceparent`
+header and incoming requests continue it. Loading the inventories page is
+therefore one trace across the client, the gateway (including its Consul
+lookup), the API and its Redis cache, while the gateway and API validate
+the token against IdentityServer's discovery and JWKS endpoints.
+
+| Service            | Traces                                                          | Metrics                                                  |
+| ------------------ | --------------------------------------------------------------- | -------------------------------------------------------- |
+| Inventories.Client | Incoming requests, HTTP calls (gateway, IdentityServer), Redis  | ASP.NET Core, HttpClient, .NET runtime                   |
+| ApiGateway         | Incoming requests, HTTP calls (Consul, downstream API)          | ASP.NET Core (incl. rate limiter), HttpClient, runtime   |
+| Inventories.API    | Incoming requests (except `/health`), HTTP calls, Redis         | ASP.NET Core, HttpClient, .NET runtime                   |
+| IdentityServer     | Incoming requests, SQL Server queries, Redis, Duende activities | ASP.NET Core (incl. rate limiter), HttpClient, runtime, Duende IdentityServer meters, login/consent counters |
+
+**Logs.** `ILogger` output is exported too (console logging is unchanged).
+Each record carries the trace and span id of the request that wrote it, so
+Grafana can jump from a span to its logs and back.
+
+Each service tags its telemetry with `service.name` (e.g. `inventories-api`),
+`service.version` and `deployment.environment.name`.
+
+**Configuration** -- the `OpenTelemetry` section of each service's appsettings:
+
+| Setting        | appsettings.json | Development             | Docker / Kubernetes        |
+| -------------- | ---------------- | ----------------------- | -------------------------- |
+| `OtlpEndpoint` | empty (off)      | `http://localhost:4317` | `http://otel-lgtm:4317`    |
+| `ServiceName`  | service's name   |                         |                            |
+
+When `OtlpEndpoint` is empty OpenTelemetry is not registered at all. If the
+collector is configured but not running, the service works normally and
+telemetry is dropped.
+
+**Exploring the data** -- log in to the client and open the inventories
+page, then open Grafana at http://localhost:3000 (no login needed) and go to
+**Explore**:
+
+-   **Tempo** -- query `{resource.service.name="inventories-client"}` and
+    open a trace to see the whole request path, from the client through the
+    gateway to the API, Redis and IdentityServer. Spans are named after the
+    route template, e.g. `GET {controller=Home}/{action=Index}/{id?}`.
+-   **Loki** -- query `{service_name="identityserver"}` to see its logs;
+    each log line written during a request has a `trace_id` that links to
+    its trace.
+-   **Prometheus** -- for example `http_server_request_duration_seconds_count`
+    by `service_name`, or `aspnetcore_rate_limiting_requests_total` to see
+    rejected requests.
+
+**Caveats**
+
+-   `otel-lgtm` is a development image: telemetry is kept inside the
+    container and is lost when it is recreated.
+-   Every request is traced (no sampling). A busy production system would
+    sample and run a separate collector in front of dedicated backends.
+
+------------------------------------------------------------------------
+
 # Project Structure
 
     AuthServices
@@ -498,6 +589,7 @@ Limits are set in the `RateLimiting` section of each service's
     ├── IdentityServer
     │   ├── Caching            (Redis config store cache + Data Protection)
     │   ├── RateLimiting       (login and token endpoint limits)
+    │   ├── Observability      (OpenTelemetry traces, metrics, logs)
     │   ├── Data/Migrations
     │   ├── Pages
     │   ├── Config.cs
@@ -509,16 +601,19 @@ Limits are set in the `RateLimiting` section of each service's
     │   ├── Services
     │   ├── Caching            (Redis cache-aside for inventory reads)
     │   ├── ServiceDiscovery   (Consul registration)
+    │   ├── Observability      (OpenTelemetry traces, metrics, logs)
     │   └── Models
     │
     ├── ApiGateway
     │   ├── RateLimiting       (per-user limits for API calls)
+    │   ├── Observability      (OpenTelemetry traces, metrics, logs)
     │   ├── ocelot.json        (routes resolved via Consul)
     │   └── ServiceAddressConsulServiceBuilder.cs
     │
     ├── Inventories.Client
     │   ├── Authentication     (access token refresh with rotated refresh tokens)
-    │   └── Filters            ("Too Many Requests" page for 429 responses)
+    │   ├── Filters            ("Too Many Requests" page for 429 responses)
+    │   └── Observability      (OpenTelemetry traces, metrics, logs)
     │
     ├── k8s
     │   ├── charts/auth-services   (Helm chart)
@@ -563,6 +658,7 @@ a local Kubernetes cluster with Helm.
 | Inventories.API    | http://localhost:5017   |
 | Consul UI          | http://localhost:8500   |
 | Redis              | localhost:6379          |
+| Grafana            | http://localhost:3000   |
 
 Each service has a multi-stage `Dockerfile` and an `appsettings.Docker.json`
 used when `ASPNETCORE_ENVIRONMENT=Docker`. Inside Docker, services use plain
@@ -579,6 +675,9 @@ database volume).
 Start only the IdentityServer database (SQL Server), Consul and Redis in Docker
 
     docker compose up -d identity-db consul redis
+
+Add `otel-lgtm` to the list to also collect telemetry: in Development the
+services export to `http://localhost:4317`.
 
 IdentityServer stores its configuration data (clients, scopes, identity
 resources) and operational data (grants, consents, device codes) in SQL
@@ -641,6 +740,7 @@ reuse `appsettings.Docker.json` and `ocelot.Docker.json` unchanged.
 | NodePort Services + kind port mappings | `ports:`                         |
 | `consul` Deployment + NodePort | `consul` container                       |
 | `redis` StatefulSet+PVC       | `redis` container + named volume          |
+| `otel-lgtm` Deployment + Services | `otel-lgtm` container                 |
 
 Useful commands
 
@@ -654,7 +754,11 @@ The Consul UI port (8500) is a kind port mapping, and kind can only set those
 when it creates a cluster. If your cluster was created before service
 discovery was added, `deploy.sh` prints a warning. Run `k8s/teardown.sh`
 and deploy again to get the Consul UI on http://localhost:8500. Service
-discovery inside the cluster works either way.
+discovery inside the cluster works either way. The same applies to Grafana
+(port 3000), added with observability; until the cluster is recreated, reach
+it with
+
+    kubectl --context kind-auth-services -n auth-services port-forward svc/otel-lgtm-grafana 3000
 
 All services run as a single replica. IdentityServer uses a developer
 signing key stored on disk and the Inventories API uses an in-memory
@@ -684,15 +788,6 @@ To render or check the chart without a cluster:
 -   Shared Data Protection keys for cookies across instances (Redis)
 -   Refresh token rotation with short-lived access tokens
 -   Rate limiting per user, client and IP (API Gateway, IdentityServer)
+-   End-to-end tracing of authenticated requests (OpenTelemetry)
 
 ------------------------------------------------------------------------
-
-# Possible Improvements
-
--   [x] Docker containerization
--   [x] Kubernetes deployment
--   [x] Service discovery
--   [x] Distributed caching
--   [x] Refresh token rotation
--   [x] Rate limiting
--   Observability with OpenTelemetry

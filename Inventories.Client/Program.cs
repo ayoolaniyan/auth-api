@@ -5,6 +5,7 @@ using Microsoft.Net.Http.Headers;
 using Inventories.Client.HttpHandlers;
 using Inventories.Client.Authentication;
 using Inventories.Client.Filters;
+using Inventories.Client.Observability;
 using Duende.IdentityModel.Client;
 using Microsoft.IdentityModel.Tokens;
 using Duende.IdentityModel;
@@ -22,13 +23,20 @@ builder.Services.AddControllersWithViews(options =>
 });
 builder.Services.AddScoped<IInventoryApiService, InventoryApiService>();
 
+// Traces, metrics and logs go to the OpenTelemetry collector (see Observability/ and the
+// "OpenTelemetry" section in appsettings).
+builder.Services.AddObservability(builder.Configuration, builder.Environment);
+
 // The login cookie is encrypted with Data Protection keys. Keeping them in Redis means users stay
 // signed in across restarts and any client instance can read a cookie issued by another.
 var redisConfiguration = ConfigurationOptions.Parse(builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379");
 redisConfiguration.AbortOnConnectFail = false;
+var redis = ConnectionMultiplexer.Connect(redisConfiguration);
+// Registered so OpenTelemetry can trace its commands.
+builder.Services.AddSingleton<IConnectionMultiplexer>(redis);
 builder.Services.AddDataProtection()
     .SetApplicationName("inventories-client")
-    .PersistKeysToStackExchangeRedis(ConnectionMultiplexer.Connect(redisConfiguration), "inventories-client:data-protection-keys");
+    .PersistKeysToStackExchangeRedis(redis, "inventories-client:data-protection-keys");
 
 // Public URL is what the browser uses; internal URL is used for server-to-server calls
 // (they differ when running in Docker, see appsettings.Docker.json).

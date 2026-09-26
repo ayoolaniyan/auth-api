@@ -1,6 +1,7 @@
 using Inventories.API;
 using Inventories.API.Caching;
 using Inventories.API.Data;
+using Inventories.API.Observability;
 using Inventories.API.ServiceDiscovery;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -10,6 +11,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<InventoriesContext>(opt => opt.UseInMemoryDatabase("InventoriesContext"));
 
 builder.Services.AddControllers();
+
+// Traces, metrics and logs go to the OpenTelemetry collector (see Observability/ and the
+// "OpenTelemetry" section in appsettings).
+builder.Services.AddObservability(builder.Configuration, builder.Environment);
 
 // Inventory reads are cached in Redis and shared by every instance. Redis is deliberately
 // not part of /health: if it goes down the API keeps serving from the database.

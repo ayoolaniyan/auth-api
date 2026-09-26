@@ -1,0 +1,79 @@
+{{- $otel := .Values.otelLgtm }}
+# Telemetry backend (replaces the docker-compose `otel-lgtm` container): an OpenTelemetry Collector
+# with Tempo, Prometheus, Loki and Grafana. Telemetry is kept in the pod and lost when it restarts.
+# OTLP is ClusterIP only: the services send to otel-lgtm:4317 (see appsettings.Docker.json).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $otel.name }}
+  labels:
+    {{- include "auth-services.labels" (dict "root" $ "name" $otel.name) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "auth-services.selectorLabels" (dict "root" $ "name" $otel.name) | nindent 4 }}
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+---
+# Grafana gets its own Service so only it takes a fixed NodePort (mapped to host port 3000 in
+# k8s/kind-config.yaml); a NodePort for the OTLP ports would be picked at random.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $otel.name }}-grafana
+  labels:
+    {{- include "auth-services.labels" (dict "root" $ "name" $otel.name) | nindent 4 }}
+spec:
+  type: NodePort
+  selector:
+    {{- include "auth-services.selectorLabels" (dict "root" $ "name" $otel.name) | nindent 4 }}
+  ports:
+    - name: grafana
+      port: 3000
+      targetPort: grafana
+      nodePort: {{ $otel.grafanaNodePort }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $otel.name }}
+  labels:
+    {{- include "auth-services.labels" (dict "root" $ "name" $otel.name) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "auth-services.selectorLabels" (dict "root" $ "name" $otel.name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "auth-services.labels" (dict "root" $ "name" $otel.name) | nindent 8 }}
+    spec:
+      containers:
+        - name: otel-lgtm
+          image: {{ $otel.image }}
+          ports:
+            - name: grafana
+              containerPort: 3000
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: grafana
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: otlp-grpc
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            {{- toYaml $otel.resources | nindent 12 }}
