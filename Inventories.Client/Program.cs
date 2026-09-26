@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Net.Http.Headers;
 using Inventories.Client.HttpHandlers;
+using Inventories.Client.Authentication;
 using Duende.IdentityModel.Client;
 using Microsoft.IdentityModel.Tokens;
 using Duende.IdentityModel;
@@ -48,6 +49,8 @@ builder.Services.AddAuthentication(options =>
     .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
     {
         options.AccessDeniedPath = "/Account/AccessDenied";
+        // Renews the access token with the refresh token before it expires (see Authentication/).
+        options.EventsType = typeof(RefreshTokenCookieEvents);
     })
     .AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, options =>
     {                    
@@ -83,6 +86,8 @@ builder.Services.AddAuthentication(options =>
         options.Scope.Add("email");
         options.Scope.Add("inventoryAPI");
         options.Scope.Add("roles");
+        // Ask for a refresh token so the access token can be renewed without a new login.
+        options.Scope.Add("offline_access");
 
         options.ClaimActions.MapUniqueJsonKey("role", "role");
 
@@ -95,6 +100,10 @@ builder.Services.AddAuthentication(options =>
             RoleClaimType = JwtClaimTypes.Role
         };
     });
+
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<RefreshTokenService>();
+builder.Services.AddSingleton<RefreshTokenCookieEvents>();
 
 // 1 create an HttpClient used for accessing the Movies.API
 builder.Services.AddTransient<AuthenticationDelegatingHandler>();

@@ -146,7 +146,9 @@ Renew --> AccessToken
 2.  Client receives an **Authorization Code**.
 3.  Code exchanged for **Access Token** and **Refresh Token**.
 4.  Access Token is used for API calls.
-5.  When expired, Refresh Token obtains a new Access Token.
+5.  When expired, Refresh Token obtains a new Access Token **and a new
+    Refresh Token**; the old one stops working (see
+    [Refresh Token Rotation](#refresh-token-rotation)).
 
 ------------------------------------------------------------------------
 
@@ -369,6 +371,75 @@ is needed before running more than one API replica.
 
 ------------------------------------------------------------------------
 
+# Refresh Token Rotation
+
+The MVC client (`inventories_mvc_client`) gets a refresh token at login
+(`offline_access` scope) and uses it to renew its access token without
+sending the user back to the login page. Every refresh token can be used
+**once**: redeeming it returns a new access token and a new refresh token,
+and IdentityServer deletes the old one.
+
+``` mermaid
+sequenceDiagram
+participant Browser
+participant Client as Inventories.Client
+participant IDP as IdentityServer
+participant API as API Gateway / Inventories.API
+
+Browser->>Client: Request (login cookie holds AT1 + RT1)
+Note over Client: AT1 expires in < 60 s
+Client->>IDP: POST /connect/token (grant_type=refresh_token, RT1)
+IDP-->>Client: AT2 + RT2 (RT1 is now invalid)
+Client-->>Browser: Re-issued cookie with AT2 + RT2
+Client->>API: Bearer AT2
+Note over Client,IDP: A later attempt to use RT1 gets invalid_grant
+```
+
+| Setting (IdentityServer/Config.cs) | Value                  |
+| ---------------------------------- | ---------------------- |
+| `AccessTokenLifetime`              | 5 minutes              |
+| `RefreshTokenUsage`                | `OneTimeOnly` (rotate) |
+| `RefreshTokenExpiration`           | `Sliding`              |
+| `SlidingRefreshTokenLifetime`      | 15 days                |
+| `AbsoluteRefreshTokenLifetime`     | 30 days after login    |
+
+**How it works**
+
+1.  **IdentityServer.** The client is allowed offline access and its
+    refresh tokens are one-time-only. Each refresh extends the refresh
+    token's lifetime by 15 days, but never beyond 30 days after login;
+    after that the user signs in again. Claims such as roles are re-read on
+    every refresh (`UpdateAccessTokenClaimsOnRefresh`).
+2.  **Client.** `Authentication/RefreshTokenCookieEvents.cs` runs on every
+    authenticated request. When the access token expires within 60
+    seconds, it calls `RefreshTokenService`, which redeems the refresh
+    token at IdentityServer's token endpoint, and writes the new tokens
+    back into the login cookie. API calls and the userinfo call then use
+    the fresh access token.
+3.  **Parallel requests.** Two requests from the same user can find an
+    expired token at the same time. Because a refresh token only works
+    once, the second call would be rejected. `RefreshTokenService`
+    therefore lets only one request per refresh token call IdentityServer
+    and hands the result to the others for one minute. This lock is per
+    process, so it assumes one client instance (the current setup).
+4.  **When refresh fails.** If IdentityServer rejects the refresh token
+    (`invalid_grant`: already used, revoked or expired), the user is signed
+    out of the client and `[Authorize]` pages redirect to the login page.
+    If IdentityServer can't be reached, the session is kept and the refresh
+    is retried on the next request. Sessions created before this feature
+    have no refresh token and are signed out once.
+5.  **Config sync.** `SeedData` now re-creates clients from `Config.cs` on
+    every IdentityServer start (other configuration is still only seeded
+    into empty tables) and removes the client's cached copy from Redis, so
+    changes to client settings take effect on restart, including in
+    existing databases.
+
+Refresh tokens are stored in IdentityServer's operational store
+(`PersistedGrants` table) and removed by the token cleanup job once they
+expire or are used.
+
+------------------------------------------------------------------------
+
 # Project Structure
 
     AuthServices
@@ -393,6 +464,7 @@ is needed before running more than one API replica.
     │   └── ServiceAddressConsulServiceBuilder.cs
     │
     ├── Inventories.Client
+    │   └── Authentication     (access token refresh with rotated refresh tokens)
     │
     ├── k8s
     │   ├── charts/auth-services   (Helm chart)
@@ -556,6 +628,7 @@ To render or check the chart without a cluster:
 -   Zero‑Trust architecture
 -   Service discovery (Consul) with health checks
 -   Shared Data Protection keys for cookies across instances (Redis)
+-   Refresh token rotation with short-lived access tokens
 
 ------------------------------------------------------------------------
 
@@ -565,6 +638,6 @@ To render or check the chart without a cluster:
 -   [x] Kubernetes deployment
 -   [x] Service discovery
 -   [x] Distributed caching
--   Refresh token rotation
+-   [x] Refresh token rotation
 -   Rate limiting
 -   Observability with OpenTelemetry
