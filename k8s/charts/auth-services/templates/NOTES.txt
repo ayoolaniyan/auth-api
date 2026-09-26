@@ -1,0 +1,13 @@
+auth-services is deployed to namespace {{ .Release.Namespace }}.
+
+With the kind cluster from k8s/kind-config.yaml, the services are available at:
+{{- range $name, $app := .Values.apps }}
+  {{ $name }}: NodePort {{ $app.nodePort }}
+{{- end }}
+
+  Inventories.Client  http://localhost:5181
+  IdentityServer      http://localhost:5203
+  ApiGateway          http://localhost:7232
+  Inventories.API     http://localhost:5017
+
+Check status with: kubectl get pods -n {{ .Release.Namespace }}

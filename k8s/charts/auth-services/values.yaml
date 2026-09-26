@@ -1,0 +1,88 @@
+# Service names are fixed (not prefixed with the release name) because they must match
+# the hostnames in each project's appsettings.Docker.json and ApiGateway/ocelot.Docker.json.
+
+# The services reuse the "Docker" environment: in-cluster they reach each other by
+# service name over plain HTTP, exactly like in docker-compose.
+aspnetcoreEnvironment: Docker
+
+image:
+  # Images are built locally and loaded into kind (see k8s/deploy.sh), so never pull them.
+  tag: local
+  pullPolicy: IfNotPresent
+
+# Secret holding MSSQL_SA_PASSWORD, shared by SQL Server and IdentityServer.
+secret:
+  # Name of the Secret. k8s/deploy.sh creates it from the repo-root .env file.
+  name: identity-db-secret
+  # Set to true (with saPassword) to have the chart create the Secret instead.
+  # Note: values passed to Helm are stored in the release history.
+  create: false
+  saPassword: ""
+
+identityDb:
+  name: identity-db
+  image: mcr.microsoft.com/mssql/server:2022-latest
+  port: 1433
+  storage:
+    size: 5Gi
+    # Empty uses the cluster's default StorageClass.
+    storageClassName: ""
+  # SQL Server refuses to start with less than 2 GB of memory.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 2Gi
+    limits:
+      memory: 3Gi
+
+# One Deployment + NodePort Service per entry. nodePort matches the host port
+# mapping in k8s/kind-config.yaml.
+apps:
+  identityserver:
+    image: auth-services/identityserver
+    nodePort: 30203
+    # Receives MSSQL_SA_PASSWORD and waits for identity-db before starting.
+    usesIdentityDb: true
+    # Probed over HTTP; the other services have no anonymous endpoint, so they get a TCP probe.
+    probePath: /.well-known/openid-configuration
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 512Mi
+
+  inventories-api:
+    image: auth-services/inventories-api
+    nodePort: 30017
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+
+  apigateway:
+    image: auth-services/apigateway
+    nodePort: 30232
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+
+  inventories-client:
+    image: auth-services/inventories-client
+    nodePort: 30181
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+
+# Image used by IdentityServer's init container to wait for the database.
+waitImage: busybox:1.36
+
+containerPort: 8080
