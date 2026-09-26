@@ -50,6 +50,24 @@ consul:
     limits:
       memory: 256Mi
 
+# Distributed cache. Inventories.API caches inventory reads in it, IdentityServer its
+# configuration store, and IdentityServer + the client their Data Protection keys
+# (see the "Redis" section of each appsettings.Docker.json).
+redis:
+  name: redis
+  image: redis:7-alpine
+  port: 6379
+  storage:
+    size: 1Gi
+    # Empty uses the cluster's default StorageClass.
+    storageClassName: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
 # One Deployment + NodePort Service per entry. nodePort matches the host port
 # mapping in k8s/kind-config.yaml.
 apps:

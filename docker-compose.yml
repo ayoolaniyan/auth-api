@@ -35,6 +35,23 @@ services:
       timeout: 5s
       retries: 10
 
+  # Distributed cache shared by all services: inventory reads, IdentityServer's configuration
+  # store cache and Data Protection keys. Append-only persistence keeps the keys (and so users'
+  # login cookies) across Redis restarts.
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   identityserver:
     build:
       context: .
@@ -47,6 +64,8 @@ services:
       - "5203:8080"
     depends_on:
       identity-db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   inventories-api:
@@ -62,6 +81,8 @@ services:
       identityserver:
         condition: service_started
       consul:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   apigateway:
@@ -91,8 +112,13 @@ services:
     ports:
       - "5181:8080"
     depends_on:
-      - identityserver
-      - apigateway
+      identityserver:
+        condition: service_started
+      apigateway:
+        condition: service_started
+      redis:
+        condition: service_healthy
 
 volumes:
   identity-db-data:
+  redis-data:

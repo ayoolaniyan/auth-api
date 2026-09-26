@@ -1,3 +1,4 @@
+using Inventories.API.Caching;
 using Inventories.API.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -12,24 +13,27 @@ namespace Inventories.API.Controllers
     public class InventoriesController : ControllerBase
     {
         private readonly InventoriesContext _context;
+        private readonly InventoryCache _cache;
 
-        public InventoriesController(InventoriesContext context)
+        public InventoriesController(InventoriesContext context, InventoryCache cache)
         {
             _context = context;
+            _cache = cache;
         }
 
         // GET: api/Inventories
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Inventory>>> GetInventory()
         {
-            return await _context.Inventories.ToListAsync();
+            var inventories = await _cache.GetAllAsync(async () => await _context.Inventories.ToListAsync(), HttpContext.RequestAborted);
+            return inventories!;
         }
 
         // GET: api/Inventory/5
         [HttpGet("{id}")]
         public async Task<ActionResult<Inventory>> GetInventory(int id)
         {
-            var inventory = await _context.Inventories.FindAsync(id);
+            var inventory = await _cache.GetAsync(id, async () => await _context.Inventories.FindAsync(id), HttpContext.RequestAborted);
 
             if (inventory == null)
             {
@@ -53,6 +57,7 @@ namespace Inventories.API.Controllers
             try
             {
                 await _context.SaveChangesAsync();
+                await _cache.InvalidateAsync(id);
             }
             catch (DbUpdateConcurrencyException)
             {
@@ -75,6 +80,7 @@ namespace Inventories.API.Controllers
         {
             _context.Inventories.Add(inventory);
             await _context.SaveChangesAsync();
+            await _cache.InvalidateAsync();
 
             return CreatedAtAction("GetInventory", new { id = inventory.Id }, inventory);
         }
@@ -91,6 +97,7 @@ namespace Inventories.API.Controllers
 
             _context.Inventories.Remove(inventory);
             await _context.SaveChangesAsync();
+            await _cache.InvalidateAsync(id);
 
             return inventory;
         }

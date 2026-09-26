@@ -7,12 +7,22 @@ using Duende.IdentityModel.Client;
 using Microsoft.IdentityModel.Tokens;
 using Duende.IdentityModel;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.DataProtection;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddControllersWithViews();
 builder.Services.AddScoped<IInventoryApiService, InventoryApiService>();
+
+// The login cookie is encrypted with Data Protection keys. Keeping them in Redis means users stay
+// signed in across restarts and any client instance can read a cookie issued by another.
+var redisConfiguration = ConfigurationOptions.Parse(builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379");
+redisConfiguration.AbortOnConnectFail = false;
+builder.Services.AddDataProtection()
+    .SetApplicationName("inventories-client")
+    .PersistKeysToStackExchangeRedis(ConnectionMultiplexer.Connect(redisConfiguration), "inventories-client:data-protection-keys");
 
 // Public URL is what the browser uses; internal URL is used for server-to-server calls
 // (they differ when running in Docker, see appsettings.Docker.json).

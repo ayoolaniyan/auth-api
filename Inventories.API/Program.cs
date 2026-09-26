@@ -1,4 +1,5 @@
 using Inventories.API;
+using Inventories.API.Caching;
 using Inventories.API.Data;
 using Inventories.API.ServiceDiscovery;
 using Microsoft.EntityFrameworkCore;
@@ -9,6 +10,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<InventoriesContext>(opt => opt.UseInMemoryDatabase("InventoriesContext"));
 
 builder.Services.AddControllers();
+
+// Inventory reads are cached in Redis and shared by every instance. Redis is deliberately
+// not part of /health: if it goes down the API keeps serving from the database.
+builder.Services.AddRedisDistributedCache(builder.Configuration);
 
 // Consul polls /health; the gateway only routes to instances whose check passes.
 builder.Services.AddHealthChecks();
