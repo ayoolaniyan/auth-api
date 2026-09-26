@@ -51,10 +51,24 @@ namespace IdentityServer
                            IdentityServerConstants.StandardScopes.OpenId,
                            IdentityServerConstants.StandardScopes.Profile,
                            IdentityServerConstants.StandardScopes.Address,
-                           IdentityServerConstants.StandardScopes.Email,                           
+                           IdentityServerConstants.StandardScopes.Email,
                            "inventoryAPI",
                            "roles"
-                       }
+                       },
+
+                       // Refresh token rotation: the client may request offline_access, and every
+                       // refresh returns a new refresh token while the one just used stops working.
+                       AllowOfflineAccess = true,
+                       RefreshTokenUsage = TokenUsage.OneTimeOnly,
+                       // Each refresh extends the lifetime by the sliding window, up to the absolute
+                       // limit counted from login; after that the user has to sign in again.
+                       RefreshTokenExpiration = TokenExpiration.Sliding,
+                       SlidingRefreshTokenLifetime = (int)TimeSpan.FromDays(15).TotalSeconds,
+                       AbsoluteRefreshTokenLifetime = (int)TimeSpan.FromDays(30).TotalSeconds,
+                       // Short-lived access tokens are fine now that the client renews them itself.
+                       AccessTokenLifetime = (int)TimeSpan.FromMinutes(5).TotalSeconds,
+                       // Re-read the user's claims (e.g. roles) on every refresh.
+                       UpdateAccessTokenClaimsOnRefresh = true
                    }
             };
 
