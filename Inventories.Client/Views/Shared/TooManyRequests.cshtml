@@ -1,0 +1,13 @@
+@{
+    ViewData["Title"] = "Too Many Requests";
+}
+
+<h1 class="text-danger">@ViewData["Title"]</h1>
+
+<p>
+    You've made too many requests in a short time. Please wait a minute and try again.
+</p>
+
+<p>
+    <a class="btn btn-primary" asp-controller="Inventories" asp-action="Index">Back to Inventories</a>
+</p>

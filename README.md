@@ -440,12 +440,64 @@ expire or are used.
 
 ------------------------------------------------------------------------
 
+# Rate Limiting
+
+Requests are limited with ASP.NET Core's built-in rate limiter
+(`Microsoft.AspNetCore.RateLimiting`). A caller that goes over its limit
+gets **429 Too Many Requests** with a `Retry-After` header (seconds). On
+the gateway this is the soonest a request can be allowed again (one
+10-second segment of the sliding window), so a caller may need to retry
+more than once.
+
+| Service        | What is limited                   | Counted per                              | Default limit       | Window         |
+| -------------- | --------------------------------- | ---------------------------------------- | ------------------- | -------------- |
+| ApiGateway     | All API calls with a valid token  | User (`sub`), or `client_id` if no user  | 100 requests        | 60 s, sliding  |
+| ApiGateway     | Calls without a valid token       | IP address                               | 20 requests         | 60 s, sliding  |
+| IdentityServer | Login form submissions            | IP address                               | 5 attempts          | 60 s, fixed    |
+| IdentityServer | Token endpoint (`/connect/token`) | `client_id`                              | 300 requests        | 60 s, fixed    |
+
+Limits are set in the `RateLimiting` section of each service's
+`appsettings.json`.
+
+**How it works**
+
+1.  **API Gateway.** `UseAuthentication()` validates the access token
+    before Ocelot runs, so the limiter knows who is calling. Each user gets
+    their own limit even though all calls arrive from the Inventories.Client
+    server. Ocelot still authenticates each route itself.
+2.  **IdentityServer login.** Only `POST /Account/Login` is limited, which
+    slows down password guessing. Showing the login page is not limited.
+3.  **IdentityServer token endpoint.** Token refreshes for every user of a
+    client come from that client's server, so this is limited per
+    `client_id` rather than per IP. The id is read from the Basic
+    Authorization header or from the form body.
+4.  **Client.** When the gateway returns 429, Inventories.Client shows a
+    "Too Many Requests" page instead of the generic error page. A 429 from
+    the token endpoint during an access token refresh keeps the session and
+    retries on the next request.
+
+**Caveats**
+
+-   Counters are kept in each process's memory. Every service runs a
+    single instance today; with several gateway or IdentityServer
+    instances each would count separately, and a shared store (for example
+    Redis) would be needed.
+-   In Docker and kind, requests reach the services through port
+    forwarding, so many callers can share one IP address. Per-IP limits
+    (anonymous API calls, logins) then apply to all of them together.
+    Per-user and per-client limits are not affected.
+-   Inventories.API is also published directly (port 5017) for local
+    development. Calls made there bypass the gateway and are not limited.
+
+------------------------------------------------------------------------
+
 # Project Structure
 
     AuthServices
     │
     ├── IdentityServer
     │   ├── Caching            (Redis config store cache + Data Protection)
+    │   ├── RateLimiting       (login and token endpoint limits)
     │   ├── Data/Migrations
     │   ├── Pages
     │   ├── Config.cs
@@ -460,11 +512,13 @@ expire or are used.
     │   └── Models
     │
     ├── ApiGateway
+    │   ├── RateLimiting       (per-user limits for API calls)
     │   ├── ocelot.json        (routes resolved via Consul)
     │   └── ServiceAddressConsulServiceBuilder.cs
     │
     ├── Inventories.Client
-    │   └── Authentication     (access token refresh with rotated refresh tokens)
+    │   ├── Authentication     (access token refresh with rotated refresh tokens)
+    │   └── Filters            ("Too Many Requests" page for 429 responses)
     │
     ├── k8s
     │   ├── charts/auth-services   (Helm chart)
@@ -629,6 +683,7 @@ To render or check the chart without a cluster:
 -   Service discovery (Consul) with health checks
 -   Shared Data Protection keys for cookies across instances (Redis)
 -   Refresh token rotation with short-lived access tokens
+-   Rate limiting per user, client and IP (API Gateway, IdentityServer)
 
 ------------------------------------------------------------------------
 
@@ -639,5 +694,5 @@ To render or check the chart without a cluster:
 -   [x] Service discovery
 -   [x] Distributed caching
 -   [x] Refresh token rotation
--   Rate limiting
+-   [x] Rate limiting
 -   Observability with OpenTelemetry
