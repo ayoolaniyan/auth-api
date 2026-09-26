@@ -10,6 +10,7 @@ With the kind cluster from k8s/kind-config.yaml, the services are available at:
   ApiGateway          http://localhost:7232
   Inventories.API     http://localhost:5017
   Consul UI           http://localhost:8500
+  Grafana             http://localhost:3000  (traces, metrics and logs)
 
 Redis ({{ .Values.redis.name }}:{{ .Values.redis.port }}) is only reachable inside the cluster:
   kubectl exec -n {{ .Release.Namespace }} statefulset/{{ .Values.redis.name }} -- redis-cli

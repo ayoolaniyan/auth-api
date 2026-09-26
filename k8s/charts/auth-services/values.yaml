@@ -68,6 +68,20 @@ redis:
     limits:
       memory: 256Mi
 
+# Telemetry backend: every service exports traces, metrics and logs to it over OTLP
+# (see the "OpenTelemetry" section of each appsettings.Docker.json).
+otelLgtm:
+  name: otel-lgtm
+  image: grafana/otel-lgtm:0.34.0
+  # Mapped to host port 3000 in k8s/kind-config.yaml for Grafana.
+  grafanaNodePort: 30300
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1536Mi
+
 # One Deployment + NodePort Service per entry. nodePort matches the host port
 # mapping in k8s/kind-config.yaml.
 apps:

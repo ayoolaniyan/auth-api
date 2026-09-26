@@ -1,6 +1,7 @@
 using Duende.IdentityServer.Models;
 using IdentityServer;
 using IdentityServer.Caching;
+using IdentityServer.Observability;
 using IdentityServer.RateLimiting;
 using IdentityServerHost.Quickstart.UI;
 using Microsoft.Data.SqlClient;
@@ -14,6 +15,10 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllersWithViews();    
 builder.Services.AddRazorPages();
+
+// Traces, metrics and logs go to the OpenTelemetry collector (see Observability/ and the
+// "OpenTelemetry" section in appsettings).
+builder.Services.AddObservability(builder.Configuration, builder.Environment);
 
 var connectionString = new SqlConnectionStringBuilder(
     builder.Configuration.GetConnectionString("IdentityServerDb")

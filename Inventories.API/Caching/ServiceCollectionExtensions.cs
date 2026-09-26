@@ -21,10 +21,14 @@ namespace Inventories.API.Caching
             // so requests fall back to the database without waiting for a timeout.
             redisConfiguration.BacklogPolicy = BacklogPolicy.FailFast;
 
-            services.AddStackExchangeRedisCache(redis =>
+            // Registered so OpenTelemetry can trace its commands (see Observability/).
+            var redis = ConnectionMultiplexer.Connect(redisConfiguration);
+            services.AddSingleton<IConnectionMultiplexer>(redis);
+
+            services.AddStackExchangeRedisCache(cache =>
             {
-                redis.ConfigurationOptions = redisConfiguration;
-                redis.InstanceName = options.InstanceName;
+                cache.ConnectionMultiplexerFactory = () => Task.FromResult<IConnectionMultiplexer>(redis);
+                cache.InstanceName = options.InstanceName;
             });
 
             services.AddSingleton<InventoryCache>();

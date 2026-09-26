@@ -1,4 +1,5 @@
 using ApiGateway;
+using ApiGateway.Observability;
 using ApiGateway.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Ocelot.DependencyInjection;
@@ -9,6 +10,10 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration.AddJsonFile("ocelot.json", optional: false, reloadOnChange: true);
 builder.Configuration.AddJsonFile($"ocelot.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
+
+// Traces, metrics and logs go to the OpenTelemetry collector (see Observability/ and the
+// "OpenTelemetry" section in appsettings).
+builder.Services.AddObservability(builder.Configuration, builder.Environment);
 
 // Also the default scheme, so UseAuthentication() identifies the caller for rate limiting
 // before Ocelot runs its own per-route authentication.

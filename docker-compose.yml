@@ -52,6 +52,17 @@ services:
       timeout: 5s
       retries: 10
 
+  # Telemetry backend: an OpenTelemetry Collector receiving OTLP from every service, with Tempo (traces),
+  # Prometheus (metrics), Loki (logs) and Grafana to explore them at http://localhost:3000.
+  # Services don't wait for it: they start without it and export once it is up.
+  otel-lgtm:
+    image: grafana/otel-lgtm:0.34.0
+    container_name: otel-lgtm
+    ports:
+      - "3000:3000" # Grafana
+      - "4317:4317" # OTLP gRPC (also used by services run with `dotnet run`)
+      - "4318:4318" # OTLP HTTP
+
   identityserver:
     build:
       context: .

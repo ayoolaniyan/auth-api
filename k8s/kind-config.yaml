@@ -17,3 +17,5 @@ nodes:
         hostPort: 5181
       - containerPort: 30500 # consul (UI and HTTP API)
         hostPort: 8500
+      - containerPort: 30300 # otel-lgtm (Grafana)
+        hostPort: 3000
