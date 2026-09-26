@@ -1,0 +1,92 @@
+{{- range $name, $app := .Values.apps }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "auth-services.labels" (dict "root" $ "name" $name) | nindent 4 }}
+spec:
+  type: NodePort
+  selector:
+    {{- include "auth-services.selectorLabels" (dict "root" $ "name" $name) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $.Values.containerPort }}
+      targetPort: http
+      nodePort: {{ $app.nodePort }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "auth-services.labels" (dict "root" $ "name" $name) | nindent 4 }}
+spec:
+  # Single replica: IdentityServer's signing key is file-based and the
+  # Inventories API uses an in-memory database, so neither can scale out yet.
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "auth-services.selectorLabels" (dict "root" $ "name" $name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "auth-services.labels" (dict "root" $ "name" $name) | nindent 8 }}
+    spec:
+      {{- if $app.usesIdentityDb }}
+      initContainers:
+        # Replaces docker-compose's depends_on: service_healthy. The Service only
+        # routes to the database once its readiness probe (SELECT 1) passes.
+        - name: wait-for-identity-db
+          image: {{ $.Values.waitImage }}
+          command:
+            - sh
+            - -c
+            - until nc -z {{ $.Values.identityDb.name }} {{ $.Values.identityDb.port }}; do echo waiting for {{ $.Values.identityDb.name }}; sleep 3; done
+      {{- end }}
+      containers:
+        - name: {{ $name }}
+          image: "{{ $app.image }}:{{ $.Values.image.tag }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $.Values.containerPort }}
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: {{ $.Values.aspnetcoreEnvironment | quote }}
+            {{- if $app.usesIdentityDb }}
+            - name: MSSQL_SA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.secret.name }}
+                  key: MSSQL_SA_PASSWORD
+            {{- end }}
+          {{- if $app.probePath }}
+          readinessProbe:
+            httpGet:
+              path: {{ $app.probePath }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: {{ $app.probePath }}
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          {{- else }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          {{- end }}
+          resources:
+            {{- toYaml $app.resources | nindent 12 }}
+{{- end }}

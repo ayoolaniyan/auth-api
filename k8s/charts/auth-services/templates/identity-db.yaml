@@ -1,0 +1,82 @@
+{{- $db := .Values.identityDb }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $db.name }}
+  labels:
+    {{- include "auth-services.labels" (dict "root" $ "name" $db.name) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "auth-services.selectorLabels" (dict "root" $ "name" $db.name) | nindent 4 }}
+  ports:
+    - name: sql
+      port: {{ $db.port }}
+      targetPort: sql
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $db.name }}
+  labels:
+    {{- include "auth-services.labels" (dict "root" $ "name" $db.name) | nindent 4 }}
+spec:
+  serviceName: {{ $db.name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "auth-services.selectorLabels" (dict "root" $ "name" $db.name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "auth-services.labels" (dict "root" $ "name" $db.name) | nindent 8 }}
+    spec:
+      securityContext:
+        # The mssql image runs as uid 10001; let it write to the volume.
+        fsGroup: 10001
+      containers:
+        - name: mssql
+          image: {{ $db.image }}
+          ports:
+            - name: sql
+              containerPort: 1433
+          env:
+            - name: ACCEPT_EULA
+              value: "Y"
+            - name: MSSQL_SA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secret.name }}
+                  key: MSSQL_SA_PASSWORD
+          # Same check as the docker-compose healthcheck.
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -Q 'SELECT 1'
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            tcpSocket:
+              port: sql
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            {{- toYaml $db.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/opt/mssql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with $db.storage.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $db.storage.size }}

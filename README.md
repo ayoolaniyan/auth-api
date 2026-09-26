@@ -225,6 +225,12 @@ Gateway --> Service
     │
     ├── Inventories.Client
     │
+    ├── k8s
+    │   ├── charts/auth-services   (Helm chart)
+    │   ├── kind-config.yaml
+    │   ├── deploy.sh
+    │   └── teardown.sh
+    │
     ├── .env-example
     ├── .dockerignore
     ├── docker-compose.yml
@@ -246,8 +252,9 @@ Create your local `.env` file from the template and set the SQL Server password
 `.env` is git-ignored. It is read by `docker compose` and loaded by
 IdentityServer at startup, which adds the password to the connection string.
 
-There are two ways to run the project: everything in Docker, or the
-services locally with `dotnet run` (only the database in Docker).
+There are three ways to run the project: everything in Docker, the
+services locally with `dotnet run` (only the database in Docker), or on
+a local Kubernetes cluster with Helm.
 
 ## Option A -- Run everything in Docker
 
@@ -296,6 +303,59 @@ Run each service
     dotnet run --project ApiGateway
     dotnet run --project Inventories.Client
 
+## Option C -- Run on Kubernetes (kind + Helm)
+
+Requires Docker, [kind](https://kind.sigs.k8s.io/), `kubectl` and
+[Helm](https://helm.sh/). With `.env` in place, run
+
+    k8s/deploy.sh
+
+The script:
+
+1.  Creates a kind cluster named `auth-services` from
+    `k8s/kind-config.yaml` (skipped if it already exists).
+2.  Builds the four service images with their existing Dockerfiles and
+    loads them into the cluster.
+3.  Creates the `identity-db-secret` Secret from `.env`, so the SQL
+    Server password is kept out of Helm values and release history.
+4.  Installs or upgrades the `k8s/charts/auth-services` Helm chart into
+    the `auth-services` namespace and waits for all pods to be ready.
+
+Every `kubectl`/`helm` call targets the `kind-auth-services` context
+explicitly, so the script never touches your current kubectl context.
+
+The services are exposed as NodePorts that kind maps to the same host
+ports as docker-compose, so the URLs in the Option A table are the same.
+Inside the cluster the Kubernetes Service names match the docker-compose
+service names, so the pods run with `ASPNETCORE_ENVIRONMENT=Docker` and
+reuse `appsettings.Docker.json` and `ocelot.Docker.json` unchanged.
+
+| Chart resource                | Replaces (docker-compose)                 |
+| ----------------------------- | ----------------------------------------- |
+| `identity-db` StatefulSet+PVC | `identity-db` container + named volume   |
+| SQL readiness probe           | `healthcheck`                             |
+| IdentityServer init container | `depends_on: condition: service_healthy`  |
+| `identity-db-secret` Secret   | `MSSQL_SA_PASSWORD` from `.env`           |
+| NodePort Services + kind port mappings | `ports:`                         |
+
+Useful commands
+
+    kubectl --context kind-auth-services -n auth-services get pods
+    kubectl --context kind-auth-services -n auth-services logs deploy/identityserver
+    helm uninstall auth-services -n auth-services --kube-context kind-auth-services
+
+Delete the cluster, including the database volume, with `k8s/teardown.sh`.
+
+All services run as a single replica. IdentityServer uses a developer
+signing key stored on disk and the Inventories API uses an in-memory
+database, so running more replicas would need shared key storage and a
+real database first.
+
+To render or check the chart without a cluster:
+
+    helm lint k8s/charts/auth-services
+    helm template auth-services k8s/charts/auth-services
+
 ------------------------------------------------------------------------
 
 # Security Concepts Demonstrated
@@ -312,7 +372,7 @@ Run each service
 # Possible Improvements
 
 -   [x] Docker containerization
--   Kubernetes deployment
+-   [x] Kubernetes deployment
 -   Service discovery
 -   Distributed caching
 -   Refresh token rotation
