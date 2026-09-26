@@ -1,6 +1,6 @@
 apiVersion: v2
 name: auth-services
-description: IdentityServer, API Gateway, Inventories API and client, plus the IdentityServer SQL Server database
+description: IdentityServer, API Gateway, Inventories API and client, plus the IdentityServer SQL Server database and Consul
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "1.0.0"

@@ -9,5 +9,6 @@ With the kind cluster from k8s/kind-config.yaml, the services are available at:
   IdentityServer      http://localhost:5203
   ApiGateway          http://localhost:7232
   Inventories.API     http://localhost:5017
+  Consul UI           http://localhost:8500
 
 Check status with: kubectl get pods -n {{ .Release.Namespace }}

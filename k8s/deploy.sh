@@ -27,6 +27,10 @@ fi
 # kubectl context (which may be a real cluster) is never touched.
 if ! kind get clusters | grep -qx "$CLUSTER"; then
   kind create cluster --config "$K8S_DIR/kind-config.yaml"
+elif ! docker port "${CLUSTER}-control-plane" 30500 >/dev/null 2>&1; then
+  # kind cannot add port mappings to an existing cluster.
+  echo "warning: this cluster predates the Consul port mapping, so the Consul UI will not be on" >&2
+  echo "         http://localhost:8500. Run k8s/teardown.sh and re-run this script to recreate it." >&2
 fi
 
 # Image name -> project folder (each has its own Dockerfile; build context is the repo root).

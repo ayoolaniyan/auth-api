@@ -1,5 +1,6 @@
 using Inventories.API;
 using Inventories.API.Data;
+using Inventories.API.ServiceDiscovery;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
@@ -8,6 +9,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<InventoriesContext>(opt => opt.UseInMemoryDatabase("InventoriesContext"));
 
 builder.Services.AddControllers();
+
+// Consul polls /health; the gateway only routes to instances whose check passes.
+builder.Services.AddHealthChecks();
+builder.Services.AddConsulServiceDiscovery(builder.Configuration);
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -43,5 +48,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHealthChecks("/health");
 
 app.Run();

@@ -17,6 +17,24 @@ services:
       retries: 10
       start_period: 20s
 
+  # Service registry: Inventories.API registers itself here and the API Gateway
+  # looks it up by name. Dev mode keeps the catalog in memory; UI at http://localhost:8500
+  consul:
+    image: hashicorp/consul:1.20
+    container_name: consul
+    command: agent -dev -client=0.0.0.0 -ui
+    ports:
+      - "8500:8500"
+    # Lets Consul health-check the API when it runs on the host with `dotnet run`
+    # (built into Docker Desktop; needed on Linux).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   identityserver:
     build:
       context: .
@@ -41,7 +59,10 @@ services:
     ports:
       - "5017:8080"
     depends_on:
-      - identityserver
+      identityserver:
+        condition: service_started
+      consul:
+        condition: service_healthy
 
   apigateway:
     build:
@@ -53,8 +74,12 @@ services:
     ports:
       - "7232:8080"
     depends_on:
-      - identityserver
-      - inventories-api
+      identityserver:
+        condition: service_started
+      inventories-api:
+        condition: service_started
+      consul:
+        condition: service_healthy
 
   inventories-client:
     build:

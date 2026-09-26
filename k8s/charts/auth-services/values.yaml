@@ -35,6 +35,21 @@ identityDb:
     limits:
       memory: 3Gi
 
+# Service registry. Inventories.API registers with it and the API Gateway resolves
+# the API through it (see appsettings.Docker.json / ocelot.Docker.json).
+consul:
+  name: consul
+  image: hashicorp/consul:1.20
+  port: 8500
+  # Mapped to host port 8500 in k8s/kind-config.yaml for the Consul UI.
+  nodePort: 30500
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
 # One Deployment + NodePort Service per entry. nodePort matches the host port
 # mapping in k8s/kind-config.yaml.
 apps:
@@ -43,7 +58,7 @@ apps:
     nodePort: 30203
     # Receives MSSQL_SA_PASSWORD and waits for identity-db before starting.
     usesIdentityDb: true
-    # Probed over HTTP; the other services have no anonymous endpoint, so they get a TCP probe.
+    # Probed over HTTP when probePath is set; services without an anonymous endpoint get a TCP probe.
     probePath: /.well-known/openid-configuration
     resources:
       requests:
@@ -55,6 +70,9 @@ apps:
   inventories-api:
     image: auth-services/inventories-api
     nodePort: 30017
+    probePath: /health
+    # Registers its pod IP with Consul so the API Gateway can discover it.
+    registersWithConsul: true
     resources:
       requests:
         cpu: 50m

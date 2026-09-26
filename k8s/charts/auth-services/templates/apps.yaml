@@ -62,6 +62,14 @@ spec:
                   name: {{ $.Values.secret.name }}
                   key: MSSQL_SA_PASSWORD
             {{- end }}
+            {{- if $app.registersWithConsul }}
+            # Register the pod IP rather than the Service name, so the gateway load-balances
+            # across pods itself and Consul health-checks each pod individually.
+            - name: ServiceDiscovery__ServiceAddress
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            {{- end }}
           {{- if $app.probePath }}
           readinessProbe:
             httpGet:

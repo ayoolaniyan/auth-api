@@ -1,6 +1,8 @@
+using ApiGateway;
 using Microsoft.IdentityModel.Tokens;
 using Ocelot.DependencyInjection;
 using Ocelot.Middleware;
+using Ocelot.Provider.Consul;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,7 +20,9 @@ builder.Services.AddAuthentication()
         };
     });
 
-builder.Services.AddOcelot();
+// Downstream hosts are resolved from Consul (see GlobalConfiguration.ServiceDiscoveryProvider in ocelot.json).
+builder.Services.AddOcelot()
+    .AddConsul<ServiceAddressConsulServiceBuilder>();
 
 var app = builder.Build();
 
