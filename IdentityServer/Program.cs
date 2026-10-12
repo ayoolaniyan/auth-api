@@ -62,6 +62,7 @@ builder.Services
         options.EnableTokenCleanup = true;
     })
     .AddTestUsers(TestUsers.Users)
+    // Generates tempkey.jwk on first start if it is missing; the file is git-ignored.
     .AddDeveloperSigningCredential();
 
 var app = builder.Build();

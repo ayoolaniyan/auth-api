@@ -29,7 +29,7 @@ The system is composed of:
 
 The architecture demonstrates:
 
--   OAuth2 Authorization Code Flow
+-   OAuth2 Authorization Code Flow with PKCE
 -   API Gateway security
 -   Token-based API protection
 -   Zero‑Trust microservice communication
@@ -69,7 +69,7 @@ Identity --> Gateway
 
 ------------------------------------------------------------------------
 
-# OAuth2 Authorization Code Flow
+# OAuth2 Authorization Code Flow with PKCE
 
 ``` mermaid
 sequenceDiagram
@@ -80,10 +80,10 @@ participant ApiGateway
 participant InventoryAPI
 
 User->>ClientApp: Access application
-ClientApp->>IdentityServer: Redirect to login
+ClientApp->>IdentityServer: Redirect to login (code_challenge)
 User->>IdentityServer: Authenticate
 IdentityServer->>ClientApp: Authorization Code
-ClientApp->>IdentityServer: Exchange Code for Token
+ClientApp->>IdentityServer: Exchange Code for Token (code_verifier)
 IdentityServer->>ClientApp: Access Token + ID Token
 ClientApp->>ApiGateway: Request with Access Token
 ApiGateway->>IdentityServer: Validate Token
@@ -778,7 +778,7 @@ To render or check the chart without a cluster:
 
 # Security Concepts Demonstrated
 
--   OAuth2 Authorization Code Flow
+-   OAuth2 Authorization Code Flow with PKCE
 -   OpenID Connect authentication
 -   JWT access tokens
 -   API Gateway security
