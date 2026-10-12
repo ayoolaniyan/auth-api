@@ -91,7 +91,8 @@ builder.Services.AddAuthentication(options =>
 
         options.ClientId = "inventories_mvc_client";
         options.ClientSecret = "secret";
-        options.ResponseType = "code id_token";
+        // Authorization Code flow with PKCE (UsePkce is on by default for "code").
+        options.ResponseType = "code";
 
         // options.Scope.Add("openid");
         // options.Scope.Add("profile");

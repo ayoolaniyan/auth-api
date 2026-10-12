@@ -55,3 +55,7 @@ nunit-*.xml
 # Environment secrets
 .env
 !.env-example
+
+# IdentityServer signing keys (generated at startup, never commit)
+keys/
+*.jwk
